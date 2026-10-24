@@ -78,13 +78,17 @@ func main() {
 
 	fmt.Println("Ищем максимальное значение в один поток")
 	start := time.Now()
-	maxValue := maximum(data)
-	elapsed := time.Since(start).Microseconds()
-	fmt.Printf("Максимальное значение элемента: %d\nВремя поиска: %d us\n", maxValue, elapsed)
+	maxSingle := maximum(data)
+	elapsedSingle := time.Since(start).Microseconds()
+	fmt.Printf("Максимальное значение элемента: %d\nВремя поиска: %d us\n", maxSingle, elapsedSingle)
 
-	fmt.Printf("Ищем максимальное значение в %d потоков\n", CHUNKS)
+	fmt.Printf("Ищем максимальное значение в %d горутин\n", CHUNKS)
 	start = time.Now()
-	maxValue = maxChunks(data)
-	elapsed = time.Since(start).Microseconds()
-	fmt.Printf("Максимальное значение элемента: %d\nВремя поиска: %d us\n", maxValue, elapsed)
+	maxParallel := maxChunks(data)
+	elapsedParallel := time.Since(start).Microseconds()
+	fmt.Printf("Максимальное значение элемента: %d\nВремя поиска: %d us\n", maxParallel, elapsedParallel)
+
+	if maxSingle != maxParallel {
+		fmt.Printf("ОШИБКА: результаты не совпадают: single=%d, parallel=%d\n", maxSingle, maxParallel)
+	}
 }

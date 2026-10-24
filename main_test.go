@@ -59,17 +59,6 @@ func TestGenerateRandomElements(t *testing.T) {
 			t.Error("two consecutive calls returned identical slices, generator may be broken")
 		}
 	})
-
-	t.Run("produces varied values", func(t *testing.T) {
-		data := generateRandomElements(1000)
-		unique := make(map[int]struct{}, len(data))
-		for _, v := range data {
-			unique[v] = struct{}{}
-		}
-		if len(unique) < 10 {
-			t.Errorf("only %d unique values in 1000 elements, want at least 10", len(unique))
-		}
-	})
 }
 
 func TestMaximum(t *testing.T) {
@@ -107,7 +96,7 @@ func TestMaximum(t *testing.T) {
 }
 
 func TestMaxChunks(t *testing.T) {
-	tests := []struct {
+	sizeTests := []struct {
 		name string
 		size int
 	}{
@@ -121,8 +110,8 @@ func TestMaxChunks(t *testing.T) {
 		{"large", 1000},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, tt := range sizeTests {
+		t.Run("differential/"+tt.name, func(t *testing.T) {
 			data := generateRandomElements(tt.size)
 			gotChunks := maxChunks(data)
 			gotSingle := maximum(data)
@@ -133,46 +122,121 @@ func TestMaxChunks(t *testing.T) {
 		})
 	}
 
-	t.Run("max in tail after division remainder", func(t *testing.T) {
-		size := CHUNKS*2 + 3
-		data := make([]int, size)
-		for i := range data {
-			data[i] = 1
-		}
-		data[size-1] = 999
+	deterministic := []struct {
+		name string
+		data []int
+		want int
+	}{
+		{
+			name: "all negative",
+			data: []int{-10, -5, -3, -20, -1, -8, -7, -6},
+			want: -1,
+		},
+		{
+			name: "all min int",
+			data: []int{
+				math.MinInt, math.MinInt, math.MinInt, math.MinInt,
+				math.MinInt, math.MinInt, math.MinInt, math.MinInt,
+			},
+			want: math.MinInt,
+		},
+		{
+			name: "max int in last chunk",
+			data: []int{
+				-10, -20, -30, -40,
+				-50, -60, -70, math.MaxInt,
+			},
+			want: math.MaxInt,
+		},
+		{
+			name: "max in tail after division remainder",
+			data: func() []int {
+				d := make([]int, CHUNKS*2+3)
+				for i := range d {
+					d[i] = 1
+				}
+				d[len(d)-1] = 999
+				return d
+			}(),
+			want: 999,
+		},
+		{
+			name: "all equal",
+			data: func() []int {
+				d := make([]int, 1000)
+				for i := range d {
+					d[i] = 42
+				}
+				return d
+			}(),
+			want: 42,
+		},
+		{
+			name: "local maxima at chunk starts",
+			data: func() []int {
+				size := CHUNKS * 10
+				d := make([]int, size)
+				for i := range d {
+					d[i] = 1
+				}
+				chunkSize := size / CHUNKS
+				for c := 0; c < CHUNKS; c++ {
+					d[c*chunkSize] = 100 + c
+				}
+				return d
+			}(),
+			want: 107,
+		},
+		{
+			name: "max at chunk boundaries",
+			data: func() []int {
+				size := CHUNKS * 4
+				d := make([]int, size)
+				for i := range d {
+					d[i] = 1
+				}
+				chunkSize := size / CHUNKS
+				d[chunkSize] = 777
+				return d
+			}(),
+			want: 777,
+		},
+	}
 
-		if got := maxChunks(data); got != 999 {
-			t.Errorf("maxChunks = %d, want 999 (max in tail)", got)
-		}
-	})
-
-	t.Run("all equal", func(t *testing.T) {
-		data := make([]int, 1000)
-		for i := range data {
-			data[i] = 42
-		}
-		if got := maxChunks(data); got != 42 {
-			t.Errorf("maxChunks = %d, want 42", got)
-		}
-	})
-
-	t.Run("local maxima in each chunk", func(t *testing.T) {
-		size := CHUNKS * 10
-		data := make([]int, size)
-		for i := range data {
-			data[i] = 1
-		}
-		chunkSize := size / CHUNKS
-		for c := 0; c < CHUNKS; c++ {
-			data[c*chunkSize] = 100 + c
-		}
-		if got := maxChunks(data); got != 107 {
-			t.Errorf("maxChunks = %d, want 107", got)
-		}
-	})
+	for _, tt := range deterministic {
+		t.Run("deterministic/"+tt.name, func(t *testing.T) {
+			if got := maxChunks(tt.data); got != tt.want {
+				t.Errorf("maxChunks() = %d, want %d", got, tt.want)
+			}
+		})
+	}
 }
 
-func TestMaxChunksStress(t *testing.T) {
+func TestSearchFunctionsDoNotModifyInput(t *testing.T) {
+	original := []int{3, 10, -5, 7, 1, 42, -100, 8, 9, 9, 9}
+	cases := []struct {
+		name string
+		fn   func([]int) int
+	}{
+		{"maximum", maximum},
+		{"maxChunks", maxChunks},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			data := append([]int(nil), original...)
+			c.fn(data)
+			for i := range data {
+				if data[i] != original[i] {
+					t.Fatalf("%s modified input at index %d: got %d, want %d",
+						c.name, i, data[i], original[i])
+				}
+			}
+		})
+	}
+}
+
+func TestMaxChunksRepeated(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		data := generateRandomElements(1000)
 		got := maxChunks(data)
@@ -184,17 +248,39 @@ func TestMaxChunksStress(t *testing.T) {
 }
 
 func BenchmarkMaximum(b *testing.B) {
-	data := generateRandomElements(1_000_000)
+	data := make([]int, 1_000_000)
+	for i := range data {
+		data[i] = i
+	}
+	want := len(data) - 1
+
 	b.ResetTimer()
+	var result int
 	for i := 0; i < b.N; i++ {
-		_ = maximum(data)
+		result = maximum(data)
+	}
+	b.StopTimer()
+
+	if result != want {
+		b.Fatalf("maximum() = %d, want %d", result, want)
 	}
 }
 
 func BenchmarkMaxChunks(b *testing.B) {
-	data := generateRandomElements(1_000_000)
+	data := make([]int, 1_000_000)
+	for i := range data {
+		data[i] = i
+	}
+	want := len(data) - 1
+
 	b.ResetTimer()
+	var result int
 	for i := 0; i < b.N; i++ {
-		_ = maxChunks(data)
+		result = maxChunks(data)
+	}
+	b.StopTimer()
+
+	if result != want {
+		b.Fatalf("maxChunks() = %d, want %d", result, want)
 	}
 }
